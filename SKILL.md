@@ -24,11 +24,17 @@ TARGET_DIR = $ARGUMENTS（若为空则用当前目录）
 ## 启动检查
 
 检查 `TARGET_DIR/.autoresearch/manifest.json` 是否存在：
-- **不存在** → 首次运行，执行 **初始化流程**
-- **已存在** → 读取 manifest，执行 **循环流程**（从最后一次完成的实验之后继续）
 
-若存在 `manifest.json` 但 `.autoresearch/baseline/` 目录为空或缺失，
-说明初始化未完成，重新执行初始化流程。
+**不存在** → 首次运行，执行 **初始化流程**
+
+**已存在** → 读取 manifest，按以下条件分支：
+- `termination_triggered: true` → 上次搜索已完成，输出提示后退出：
+  ```
+  本项目的 code-tune 搜索已在上次运行中完成（共 {experiment_count} 次实验）。
+  若需重新搜索，请删除 .autoresearch/ 目录后重新运行。
+  ```
+- `baseline/` 目录为空或缺失 → 初始化未完成，重新执行初始化流程
+- 否则 → 执行 **循环流程**（从上次中断处继续）
 
 ---
 
@@ -47,6 +53,7 @@ TARGET_DIR = $ARGUMENTS（若为空则用当前目录）
   Primary Metric  : {metric_name} ({direction})
   Epoch 预算/轮   : {epoch_budget}
   用户约束        : {user_constraints 摘要}
+  日志注入        : {logging_injected 时显示"已向 {train_script} 注入日志代码" | 否则"项目已有输出文件"}
   基线 metric     : {baseline_metric}（来自首次训练）
 ```
 
@@ -92,8 +99,21 @@ TARGET_DIR = $ARGUMENTS（若为空则用当前目录）
 **收尾流程**：
 
 1. 确认项目文件已处于最优状态（reject 分支已恢复，或 accept 分支文件本身就是最优）
-2. 删除 baseline 目录：`rm -rf TARGET_DIR/.autoresearch/baseline/`
-3. 输出摘要：
+
+2. **清除注入的日志代码**（若 `manifest.logging_injected: true`）：
+   读取 `train_script`，删除所有以下标记之间的代码块（含标记行本身）：
+   ```
+   开始标记：# >>> code-tune: logging injection start
+   结束标记：# <<< code-tune: logging injection end
+   ```
+   写回文件。输出：
+   ```
+   ⚙ 已从 {train_script} 移除注入的日志代码，训练脚本已恢复原始状态
+   ```
+
+3. 删除 baseline 目录：`rm -rf TARGET_DIR/.autoresearch/baseline/`
+
+4. 输出摘要：
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -105,7 +125,7 @@ code-tune 搜索完成
   修改文件 : {files_changed}
   变更摘要 : {hypothesis_summary}
 
-项目文件已处于最优状态，.autoresearch/baseline/ 已清理。
+项目文件已处于最优状态，注入代码已清除，.autoresearch/baseline/ 已清理。
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 

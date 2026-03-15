@@ -83,11 +83,20 @@
 若训练脚本不写入可解析文件，**自动注入日志代码到 TRAIN_SCRIPT**：
 
 1. 读取 TRAIN_SCRIPT，定位训练循环（epoch 迭代），识别每个 epoch 结束时可用的变量（train_loss、val_loss、train_acc、val_acc 或其等效变量名）
-2. 在文件中进行精确编辑，注入以下功能：
-   - 文件顶部：补充 `import csv, json, os` 及 `from datetime import datetime`（已有则跳过）
-   - 训练循环前：初始化时间戳、`logs/` 目录、行列表
-   - 每 epoch 末尾：将 `{epoch, train_loss, val_loss, train_acc, val_acc}` 追加到行列表
-   - 训练循环后：写入 `logs/exp_{timestamp}.csv` 和 `logs/exp_{timestamp}_summary.json`
+2. 在文件中进行精确编辑，注入以下功能。**所有注入块必须用标记包裹**，以便收尾时自动清除：
+
+   注入块格式：
+   ```python
+   # >>> code-tune: logging injection start (auto-removed after run) >>>
+   {注入的代码}
+   # <<< code-tune: logging injection end <<<
+   ```
+
+   注入位置与内容：
+   - 文件顶部 import 区（补充 `import csv, json, os` 及 `from datetime import datetime`，已有则跳过，每个 import 独立包裹）
+   - 训练循环前：初始化时间戳、`logs/` 目录、行列表（一个块）
+   - 每 epoch 末尾：将 `{epoch, train_loss, val_loss, train_acc, val_acc}` 追加到行列表（一个块）
+   - 训练循环后：写入 `logs/exp_{timestamp}.csv` 和 `logs/exp_{timestamp}_summary.json`（一个块）
 
    summary JSON 至少包含：
    ```json
@@ -184,7 +193,26 @@ mkdir -p TARGET_DIR/.autoresearch/run_logs
   "project_dir": "<TARGET_DIR 的绝对路径>",
   "train_script": "<TRAIN_SCRIPT 的相对路径>",
   "mutable_files": ["<相对路径列表>"],
-  "metric_config": { "<由 1.3 + 1.4 分析结果填写>" },
+  "metric_config": {
+    "primary_metric_name": "<如 val_acc / val_loss / mAP>",
+    "primary_metric_direction": "<max | min>",
+    "peak_value": {
+      "file_pattern": "<如 logs/exp_*_summary.json>",
+      "field_or_column": "<如 best_val_acc>",
+      "aggregation": "<direct | max | min>"
+    },
+    "curve": {
+      "file_pattern": "<per-epoch CSV 路径，如 logs/exp_*.csv>",
+      "epoch_col": "epoch",
+      "train_metric_col": "<如 train_acc>",
+      "val_metric_col": "<如 val_acc>"
+    },
+    "overfitting_diagnosis": {
+      "available": <true | false>,
+      "train_col": "<如 train_acc>",
+      "val_col": "<如 val_acc>"
+    }
+  },
   "epoch_budget_per_exp": <值>,
   "logging_injected": <true | false>,
   "baseline_metric": null,

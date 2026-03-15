@@ -14,8 +14,8 @@
 
 ## 2.2 读取训练曲线并诊断
 
-按照 `metric_config.peak_value.file_pattern` 找到最新一次训练的输出文件，
-读取完整训练曲线（全部 epoch 的 train/val metric）。
+按照 `metric_config.curve.file_pattern` 找到最新一次训练的 per-epoch 曲线文件（CSV），
+读取完整训练曲线（全部 epoch 的 train/val metric，列名由 `train_metric_col` / `val_metric_col` 指定）。
 
 **若无训练记录**（初始化后首次运行 Module 2）：跳过诊断，标注"无历史曲线"。
 

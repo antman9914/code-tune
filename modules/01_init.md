@@ -1,0 +1,197 @@
+# MODULE 1: 项目初始化与基线快照
+
+## 1.1 定位训练脚本
+
+在 TARGET_DIR 下按优先级查找入口文件：
+`train.py` → `main.py` → `run.py` → `scripts/train.py` → `train.sh` → `main.sh`
+
+若以上均不存在，列出 TARGET_DIR 下所有可执行脚本（`.py` / `.sh`）：
+- 若唯一，自动选择
+- 若有多个，询问用户
+
+记为 `TRAIN_SCRIPT`。
+
+## 1.2 发现可修改文件（mutable_files）
+
+扫描 TARGET_DIR，识别属于"项目代码"的文件（以下为默认规则，可被用户覆盖）：
+
+**纳入 mutable_files（可修改）：**
+- Python 代码文件：`*.py`（排除 `__pycache__/`）
+- 配置文件：`*.yaml`、`*.yml`、`*.json`（排除 package.json、lock 文件）、`*.toml`（排除 pyproject.toml、poetry.lock）
+- 推断逻辑：通过 TRAIN_SCRIPT 的 import 语句和配置加载路径，确定哪些文件直接影响训练行为
+
+**排除（不可修改）：**
+- `data/`、`datasets/`、`*.csv`、`*.npz`、`*.pt`（数据文件）
+- `logs/`、`checkpoints/`、`outputs/`（训练输出）
+- `__pycache__/`、`*.pyc`、`*.egg-info/`（编译产物）
+- `requirements.txt`、`setup.py`、`pyproject.toml`（依赖管理）
+- `*.sh`（提交脚本为基础设施，不修改）
+- `.autoresearch/`（本工具的状态目录）
+
+向用户展示发现的文件列表并确认：
+```
+发现的可修改文件（mutable_files）：
+  [1] config.yaml      ← 配置文件
+  [2] train.py         ← 训练逻辑
+  [3] model.py         ← 模型定义
+  ...
+
+是否需要增删文件？[Enter 继续 / 输入编号删除 / 输入路径添加]
+```
+
+将确认后的列表记为 `mutable_files`。
+
+## 1.3 分析训练脚本（同 param-tune Module 1 第 1.5 节）
+
+读取 TRAIN_SCRIPT 和所有 mutable_files 的完整内容，提取：
+
+**A. Primary Metric 配置**（同 param-tune 的 metric_config，格式完全相同）：
+- 任务类型（分类/回归）
+- primary_metric_name、primary_metric_direction
+- 如何从训练输出中读取 metric 峰值（file_pattern、field、aggregation）
+- 过拟合诊断字段（若可获取）
+
+**B. Epoch 预算**：
+- 读取配置文件中 `epochs` 字段（或等效字段名，如 `num_epochs`、`max_epochs`）
+- 记为 `epoch_budget_per_exp`
+- 若配置中无 epoch 字段，询问用户
+
+**C. 可修改参数清单**（用于 Module 2 的假设生成参考，不做范围搜索）：
+- 列出所有数值型超参数及其当前值
+- 列出模型结构参数（hidden_dims、num_layers、activation 等）
+- 列出训练动态参数（optimizer、lr_scheduler 等）
+
+若发现 loss 函数设计有根本性问题（优化目标与任务不一致、NaN 风险等），
+输出具体说明并**终止初始化**，等待用户修复。
+
+## 1.4 检测运行环境
+
+按优先级检测以下调度器是否可用（`which` 或 `command -v`）：
+
+| 调度器 | 检测命令 | 提交命令 | 状态查询 |
+|--------|---------|---------|---------|
+| SLURM  | `sbatch` | `sbatch {submit_script}` | `squeue -j {jobid} -h` |
+| PBS    | `qsub`（+检查 `qconf` 不存在） | `qsub {submit_script}` | `qstat {jobid}` |
+| LSF    | `bsub` | `bsub < {submit_script}` | `bjobs {jobid}` |
+| SGE    | `qsub`（+检查 `qconf` 存在） | `qsub {submit_script}` | `qstat -j {jobid}` |
+
+若无调度器 → 本地环境。
+
+**集群环境下查找提交脚本**（在 TARGET_DIR 下按优先级查找）：
+1. `submit_train.sh`
+2. `submit.sh`
+3. `run.pbs` / `run.lsf` / `run.sge`
+4. 任意 `*.sh` 文件中含有 `#SBATCH`、`#PBS`、`#BSUB`、`#$` 指令的文件
+
+若集群环境下找不到提交脚本，提示用户并停止初始化。
+
+将结果记为 `execution_env`：
+```json
+{
+  "type": "<slurm | pbs | lsf | sge | local>",
+  "submit_script": "<相对路径，集群时有效，本地时为 null>"
+}
+```
+
+输出检测结果：
+```
+运行环境检测：{type}（{集群时：提交脚本 submit_script | 本地时：直接运行 python TRAIN_SCRIPT}）
+```
+
+## 1.5 获取用户约束
+
+询问用户（若不回答则使用默认值）：
+
+```
+请设置搜索约束（直接回车使用默认值）：
+
+1. 架构约束（如"仅限 MLP，不引入 Transformer/CNN"）
+   默认：无约束（Claude 自主判断合理的架构改动）
+   > _
+
+2. 参数约束（如"dropout_rate 不超过 0.5，hidden_dims 每层不超过 512"）
+   默认：无约束
+   > _
+
+3. 是否启用人工审查（每次修改前需要确认）？[y/N]
+   默认：N
+   > _
+```
+
+将用户输入记录为 `user_constraints`（纯文本，供 Module 2 在生成假设时参考）。
+
+## 1.6 创建目录结构并写入初始 manifest.json
+
+**在基线训练之前**先完成此步骤，以便训练时可以读取 `execution_env`。
+
+```bash
+mkdir -p TARGET_DIR/.autoresearch/baseline
+mkdir -p TARGET_DIR/.autoresearch/experiments
+mkdir -p TARGET_DIR/.autoresearch/run_logs
+```
+
+写入 `TARGET_DIR/.autoresearch/manifest.json`
+（`baseline_metric` 和 `best_metric` 暂填 `null`，1.7 完成后更新）：
+
+```json
+{
+  "project_dir": "<TARGET_DIR 的绝对路径>",
+  "train_script": "<TRAIN_SCRIPT 的相对路径>",
+  "mutable_files": ["<相对路径列表>"],
+  "metric_config": { "<由 1.3 分析结果填写>" },
+  "epoch_budget_per_exp": <值>,
+  "baseline_metric": null,
+  "human_review": <用户设定，默认 false>,
+  "user_constraints": "<用户约束的完整文本>",
+  "execution_env": {
+    "type": "<slurm | pbs | lsf | sge | local>",
+    "submit_script": "<相对路径或 null>"
+  },
+  "termination_triggered": false,
+  "termination_window": 5,
+  "recent_metrics": [],
+  "experiment_count": 0,
+  "best_metric": null,
+  "best_exp_id": null,
+  "created_at": "<ISO 8601>"
+}
+```
+
+## 1.7 运行基线训练
+
+检查是否已有训练结果文件（`metric_config.peak_value.file_pattern` 匹配的文件）：
+
+- **有结果文件**：读取最新一次的 metric 作为基线，跳过训练，提示用户：
+  ```
+  检测到已有训练结果（{最新文件名}），直接使用作为基线。
+  baseline metric ({metric_name}) = {值}
+  ```
+
+- **无结果文件**：按 `manifest.json` 中的 `execution_env` 执行一次训练
+  （使用 Module 3 的 3.2 节逻辑）。若训练失败，终止初始化，报告错误。
+
+读取 metric 后，将 `manifest.json` 中的 `baseline_metric` 和 `best_metric` 更新为该值。
+记为 `baseline_metric`。
+
+## 1.8 快照基线文件
+
+将 `mutable_files` 中的每个文件复制到 `.autoresearch/baseline/`，
+保留相对于 TARGET_DIR 的目录结构：
+
+```
+对 mutable_files 中的每个 file_path：
+  dest = .autoresearch/baseline/{file_path 相对 TARGET_DIR 的路径}
+  确保 dest 的父目录存在
+  复制 file_path → dest
+```
+
+## 1.9 Module 1 输出摘要
+
+- 训练脚本路径
+- 可修改文件列表
+- Primary Metric 及读取方式
+- Epoch 预算
+- 运行环境（local / slurm / pbs 等）
+- 用户约束摘要
+- 基线 metric 值
+- 初始化完成确认

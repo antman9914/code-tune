@@ -143,6 +143,8 @@ global_best = manifest.best_metric
 
 ## 4.7 写入 run_log
 
+**此步骤不可跳过，无论本轮结果是 accept / reject / error / timeout，都必须写入。**
+
 将本次实验的完整信息写入 `TARGET_DIR/.autoresearch/run_logs/{exp_id}.md`
 （若 `run_logs/` 目录不存在，先创建）。
 

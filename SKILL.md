@@ -80,11 +80,13 @@ TARGET_DIR = $ARGUMENTS（若为空则用当前目录）
 
 读取并执行 `~/.claude/skills/code-tune/modules/03_experiment.md`
 
-若训练失败（Python 报错、SLURM 失败等），执行以下操作：
+若训练失败（Python 报错、SLURM 失败、TIMEOUT 等），执行以下操作：
 1. 从 `.autoresearch/baseline/` 恢复所有可修改文件（回滚本次假设）
-2. 将本次实验记录为 `status: "error"`
-3. 输出训练错误信息的最后 20 行
-4. 停止循环，等待用户处理
+2. 将本次实验追加到 `experiment_log.jsonl`，`status: "error"`，`metric_after: null`
+3. **写入 run_log**（`run_logs/{exp_id}.md`）——记录假设、改动、失败原因，此步不可跳过
+4. 输出训练错误信息的最后 20 行
+5. 若是 TIMEOUT：**直接继续循环**（不等待用户），在下一轮假设中考虑减少 epoch 或换更轻量架构
+6. 若是其他错误（Python 报错等）：停止循环，等待用户处理
 
 ### Step 3 — 接受/拒绝与终止检查
 

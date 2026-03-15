@@ -65,25 +65,19 @@ cd TARGET_DIR && python {TRAIN_SCRIPT}
 
 同时读取训练曲线，提取 `curve_diagnosis`（复用 Module 2 的诊断逻辑）。
 
-## 3.5 保存实验结果
+## 3.5 向 Module 4 传递实验结果
 
-将以下内容写入 `TARGET_DIR/.autoresearch/experiments/{exp_id}/result.json`：
+将以下数据保留在当前对话上下文中，供 Module 4 直接使用（不写入任何文件）：
 
-```json
-{
-  "exp_id": "{exp_id}",
-  "metric_before": {manifest.best_metric},
-  "metric_after": {metric_after},
-  "delta": {metric_after - metric_before（注意 direction：max 时正为好）},
-  "curve_diagnosis": "{curve_diagnosis}",
-  "overfitting_train": {值或 null},
-  "overfitting_val": {值或 null},
-  "epochs_used": {epoch_budget_per_exp},
-  "status": "pending"
-}
+```
+metric_after       = {读取到的 metric 值}
+curve_diagnosis    = {训练曲线诊断描述}
+overfitting_train  = {值或 null}
+overfitting_val    = {值或 null}
+epochs_used        = {epoch_budget_per_exp}
 ```
 
-状态此时为 `"pending"`，由 Module 4 更新为 `"accept"` 或 `"reject"`。
+所有持久化写入由 Module 4 统一完成。
 
 ## 3.6 Module 3 输出摘要
 

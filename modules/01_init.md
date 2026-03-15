@@ -41,30 +41,77 @@
 
 将确认后的列表记为 `mutable_files`。
 
-## 1.3 分析训练脚本（同 param-tune Module 1 第 1.5 节）
+## 1.3 分析训练脚本
 
 读取 TRAIN_SCRIPT 和所有 mutable_files 的完整内容，提取：
 
-**A. Primary Metric 配置**（同 param-tune 的 metric_config，格式完全相同）：
+**A. 目标 Metric**：
 - 任务类型（分类/回归）
-- primary_metric_name、primary_metric_direction
-- 如何从训练输出中读取 metric 峰值（file_pattern、field、aggregation）
-- 过拟合诊断字段（若可获取）
+- primary_metric_name（如 val_acc、val_loss、mAP 等）
+- primary_metric_direction（max / min）
+- 过拟合诊断字段（若可获取，如 train_acc vs val_acc）
 
 **B. Epoch 预算**：
-- 读取配置文件中 `epochs` 字段（或等效字段名，如 `num_epochs`、`max_epochs`）
+- 读取配置文件或代码中的 `epochs` 字段（或等效字段名，如 `num_epochs`、`max_epochs`、`range(200)` 等）
 - 记为 `epoch_budget_per_exp`
-- 若配置中无 epoch 字段，询问用户
+- 若无法确定，询问用户
 
-**C. 可修改参数清单**（用于 Module 2 的假设生成参考，不做范围搜索）：
-- 列出所有数值型超参数及其当前值
-- 列出模型结构参数（hidden_dims、num_layers、activation 等）
-- 列出训练动态参数（optimizer、lr_scheduler 等）
+**C. 可修改参数清单**（用于 Module 2 假设生成的参考）：
+- 数值型超参数及其当前值、所在文件和位置（行号或字段名）
+- 模型结构参数（层数、宽度、激活函数等）
+- 训练动态参数（optimizer 类型、scheduler 类型等）
+- 参数可在任意位置：config yaml/json、argparse defaults、代码硬编码——均记录
 
 若发现 loss 函数设计有根本性问题（优化目标与任务不一致、NaN 风险等），
 输出具体说明并**终止初始化**，等待用户修复。
 
-## 1.4 检测运行环境
+## 1.4 训练输出检测与日志注入
+
+检测 TRAIN_SCRIPT 是否在训练结束后写入**可解析的 metric 文件**（CSV、JSON、JSONL 等）。
+
+### 情况 A：已有结构化输出
+
+若训练脚本已写入包含 per-epoch 指标的文件（如 CSV 或 JSON），确认：
+- 文件路径模式（如 `logs/exp_*.csv`、`results/*.json`）
+- 字段名（如 `val_acc`、`val_loss`）
+- 聚合方式（`max` / `min` / `direct`）
+
+将上述信息填入 `metric_config`，记录 `logging_injected: false`，直接进入 1.5。
+
+### 情况 B：无结构化输出（仅 stdout / 仅 checkpoint）
+
+若训练脚本不写入可解析文件，**自动注入日志代码到 TRAIN_SCRIPT**：
+
+1. 读取 TRAIN_SCRIPT，定位训练循环（epoch 迭代），识别每个 epoch 结束时可用的变量（train_loss、val_loss、train_acc、val_acc 或其等效变量名）
+2. 在文件中进行精确编辑，注入以下功能：
+   - 文件顶部：补充 `import csv, json, os` 及 `from datetime import datetime`（已有则跳过）
+   - 训练循环前：初始化时间戳、`logs/` 目录、行列表
+   - 每 epoch 末尾：将 `{epoch, train_loss, val_loss, train_acc, val_acc}` 追加到行列表
+   - 训练循环后：写入 `logs/exp_{timestamp}.csv` 和 `logs/exp_{timestamp}_summary.json`
+
+   summary JSON 至少包含：
+   ```json
+   {
+     "best_{metric_name}": <全程最优值>,
+     "final_{metric_name}": <最后一 epoch 的值>,
+     "epochs_run": <实际跑的 epoch 数>,
+     "log_file": "logs/exp_{timestamp}.csv",
+     "timestamp": "..."
+   }
+   ```
+
+3. 注入完成后输出：
+   ```
+   ⚙ 已向 {TRAIN_SCRIPT} 注入日志代码（一次性，不影响后续实验）
+     写入文件：logs/exp_{timestamp}.csv（per-epoch 曲线）
+               logs/exp_{timestamp}_summary.json（摘要指标）
+   ```
+
+4. 将 `metric_config` 配置为读取注入后的输出格式，记录 `logging_injected: true`
+
+**注意**：注入的代码将成为 `mutable_files` 的一部分，纳入 baseline 快照，后续 reject 时会随其他文件一起恢复。
+
+## 1.5 检测运行环境
 
 按优先级检测以下调度器是否可用（`which` 或 `command -v`）：
 
@@ -98,7 +145,7 @@
 运行环境检测：{type}（{集群时：提交脚本 submit_script | 本地时：直接运行 python TRAIN_SCRIPT}）
 ```
 
-## 1.5 获取用户约束
+## 1.6 获取用户约束
 
 询问用户（若不回答则使用默认值）：
 
@@ -120,7 +167,7 @@
 
 将用户输入记录为 `user_constraints`（纯文本，供 Module 2 在生成假设时参考）。
 
-## 1.6 创建目录结构并写入初始 manifest.json
+## 1.7 创建目录结构并写入初始 manifest.json
 
 **在基线训练之前**先完成此步骤，以便训练时可以读取 `execution_env`。
 
@@ -130,15 +177,16 @@ mkdir -p TARGET_DIR/.autoresearch/run_logs
 ```
 
 写入 `TARGET_DIR/.autoresearch/manifest.json`
-（`baseline_metric` 和 `best_metric` 暂填 `null`，1.7 完成后更新）：
+（`baseline_metric` 和 `best_metric` 暂填 `null`，1.8 完成后更新）：
 
 ```json
 {
   "project_dir": "<TARGET_DIR 的绝对路径>",
   "train_script": "<TRAIN_SCRIPT 的相对路径>",
   "mutable_files": ["<相对路径列表>"],
-  "metric_config": { "<由 1.3 分析结果填写>" },
+  "metric_config": { "<由 1.3 + 1.4 分析结果填写>" },
   "epoch_budget_per_exp": <值>,
+  "logging_injected": <true | false>,
   "baseline_metric": null,
   "human_review": <用户设定，默认 false>,
   "user_constraints": "<用户约束的完整文本>",
@@ -156,7 +204,7 @@ mkdir -p TARGET_DIR/.autoresearch/run_logs
 }
 ```
 
-## 1.7 运行基线训练
+## 1.8 运行基线训练
 
 检查是否已有训练结果文件（`metric_config.peak_value.file_pattern` 匹配的文件）：
 
@@ -172,7 +220,7 @@ mkdir -p TARGET_DIR/.autoresearch/run_logs
 读取 metric 后，将 `manifest.json` 中的 `baseline_metric` 和 `best_metric` 更新为该值。
 记为 `baseline_metric`。
 
-## 1.8 快照基线文件
+## 1.9 快照基线文件
 
 将 `mutable_files` 中的每个文件复制到 `.autoresearch/baseline/`，
 保留相对于 TARGET_DIR 的目录结构：
@@ -184,11 +232,11 @@ mkdir -p TARGET_DIR/.autoresearch/run_logs
   复制 file_path → dest
 ```
 
-## 1.9 Module 1 输出摘要
+## 1.10 Module 1 输出摘要
 
 - 训练脚本路径
 - 可修改文件列表
-- Primary Metric 及读取方式
+- Primary Metric 及读取方式（含 logging_injected 状态）
 - Epoch 预算
 - 运行环境（local / slurm / pbs 等）
 - 用户约束摘要

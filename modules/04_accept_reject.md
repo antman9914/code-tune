@@ -4,6 +4,8 @@
 
 从 Module 3 上下文读取 `metric_after`，从 `manifest.json` 读取 `best_metric` 和 `metric_config.primary_metric_direction`。
 
+将此时读取到的 `best_metric` 记为 `metric_before`（后续 4.2 会更新 manifest，需提前保留此值用于 4.4 日志）。
+
 **接受条件**：
 ```
 direction = "max"：metric_after > best_metric
@@ -56,8 +58,7 @@ direction = "min"：metric_after < best_metric
 ```
 
 若本次假设新增了文件（不在 baseline/ 中），从 Module 2 上下文中保留的 `CURRENT_DIFF`
-或 `experiment_log.jsonl` 最新一条的 `files_changed` 字段找出新增文件列表，
-逐一删除，并从 `manifest.json` 的 `mutable_files` 中移除这些路径。
+找出新增文件列表，逐一删除，并从 `manifest.json` 的 `mutable_files` 中移除这些路径。
 
 输出：
 ```

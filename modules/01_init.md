@@ -126,7 +126,6 @@
 
 ```bash
 mkdir -p TARGET_DIR/.autoresearch/baseline
-mkdir -p TARGET_DIR/.autoresearch/experiments
 mkdir -p TARGET_DIR/.autoresearch/run_logs
 ```
 

@@ -124,11 +124,6 @@ code-tune 搜索完成
     train.py
     model.py
     ...（mutable_files 中的所有文件）
-  experiments/
-    exp_001/
-      result.json        # {metric_before, metric_after, status, curve_diagnosis, epochs_used}
-    exp_002/
-    ...
   run_logs/
     exp_001.md           # 假设描述 + diff + 训练结果 + 决策（完整记录）
     exp_002.md

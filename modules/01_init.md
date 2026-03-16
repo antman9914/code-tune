@@ -184,7 +184,10 @@
 
 **在用户回复之前不得继续执行后续步骤。** 若用户直接回车，使用全部默认值（无约束，human_review: false，explain_decisions: false）。
 
-将用户输入记录为 `user_constraints`（纯文本，供 Module 2 在生成假设时参考）；`explain_decisions` 另行写入 manifest。
+将回复结果分别记录：
+- 选项 1-2 的文本内容 → `user_constraints`（供 Module 2 假设生成时参考）
+- 选项 3 → `human_review`（布尔值，写入 manifest）
+- 选项 4 → `explain_decisions`（布尔值，写入 manifest）
 
 ## 1.7 创建目录结构并写入初始 manifest.json
 

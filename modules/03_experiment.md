@@ -32,9 +32,19 @@ SGE:   jobid = qsub {submit_script} 输出中 "Your job NNNN" 的数字
 每次输出：[{时间戳}] 作业 {jobid} 运行中，已等待 {N} 分钟...
 ```
 
-作业结束后检查日志文件（`--output`/`-o` 指定的路径），
-若末尾含 `Error`、`Traceback`、`CANCELLED`、`FAILED`，
-输出末尾 20 行，返回错误状态给主流程。
+作业结束后检查日志文件（`--output`/`-o` 指定的路径），按以下优先级判断状态：
+
+1. **TIMEOUT**：日志末尾含 `DUE TO TIME LIMIT`、`TIME LIMIT`，或 `squeue`/`sacct` 状态为 `TIMEOUT`
+   → 返回 `status: timeout` 给主流程（主流程自动继续，无需用户干预）
+
+2. **其他失败**：日志末尾含 `Error`、`Traceback`、`CANCELLED`、`FAILED`、`OOM`、`Killed`
+   → 输出末尾 20 行，返回 `status: error` 给主流程（主流程停止等待用户）
+
+3. **无输出文件**：训练脚本无报错但 metric 文件未生成（见 3.3）
+   → 返回 `status: error`
+
+4. **正常完成**：无上述关键词，且 metric 文件已生成
+   → 返回 `status: success`
 
 **本地环境**：
 

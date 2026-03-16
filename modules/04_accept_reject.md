@@ -151,11 +151,14 @@ direction = "min"：metric_after < best_metric
 
 ## 4.5 更新搜索窗口
 
-将本次实验的 `metric_after` 追加到 `manifest.json` 的 `recent_metrics` 列表（滑动窗口）：
+**仅当 `metric_after` 不为 null（即训练成功完成）时**，将其追加到 `manifest.json` 的 `recent_metrics` 列表：
 
 ```
-recent_metrics.append(metric_after)
-若 len(recent_metrics) > K：移除最旧的元素（只保留最近 K 条）
+若 metric_after 不为 null：
+  recent_metrics.append(metric_after)
+  若 len(recent_metrics) > K：移除最旧的元素（只保留最近 K 条）
+否则（error / timeout）：
+  不修改 recent_metrics，仅跳过本次追加
 ```
 
 `K` 从 `manifest.json` 的 `termination_window` 字段读取（初始化时设为 5）。

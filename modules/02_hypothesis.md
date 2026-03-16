@@ -1,5 +1,16 @@
 # MODULE 2: 诊断与假设生成
 
+## 2.0 分配实验 ID
+
+在本轮循环开始时，从 `manifest.json` 读取当前 `experiment_count`，按以下规则生成本轮的 `exp_id`：
+
+```
+exp_id = "exp_" + str(experiment_count + 1).zfill(3)
+示例：experiment_count=0 → exp_001，experiment_count=12 → exp_013
+```
+
+后续步骤均使用此 `exp_id`，Module 4 完成后 `experiment_count` +1。
+
 ## 2.1 读取当前状态
 
 从 `TARGET_DIR/.autoresearch/manifest.json` 读取：

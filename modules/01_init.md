@@ -174,11 +174,17 @@
 3. 是否启用人工审查（每次修改前需要确认）？[y/N]
    默认：N
    > _
+
+4. 是否启用决策解释模式？[y/N]
+   启用后，每次 accept/reject 决策前会用通俗语言解释决策依据，并附上相关文献摘要，
+   由你决定是否执行该决策（适合不熟悉 ML 调参的用户）
+   默认：N
+   > _
 ```
 
-**在用户回复之前不得继续执行后续步骤。** 若用户直接回车，使用全部默认值（无约束，human_review: false）。
+**在用户回复之前不得继续执行后续步骤。** 若用户直接回车，使用全部默认值（无约束，human_review: false，explain_decisions: false）。
 
-将用户输入记录为 `user_constraints`（纯文本，供 Module 2 在生成假设时参考）。
+将用户输入记录为 `user_constraints`（纯文本，供 Module 2 在生成假设时参考）；`explain_decisions` 另行写入 manifest。
 
 ## 1.7 创建目录结构并写入初始 manifest.json
 
@@ -221,6 +227,7 @@ mkdir -p TARGET_DIR/.autoresearch/run_logs
   "logging_injected": <true | false>,
   "baseline_metric": null,
   "human_review": <用户设定，默认 false>,
+  "explain_decisions": <用户设定，默认 false>,
   "user_constraints": "<用户约束的完整文本>",
   "execution_env": {
     "type": "<slurm | pbs | lsf | sge | local>",

@@ -52,7 +52,9 @@ TARGET_DIR = $ARGUMENTS（若为空则用当前目录）
   运行环境        : {execution_env.type}（{集群时显示 submit_script}）
   Primary Metric  : {metric_name} ({direction})
   Epoch 预算/轮   : {epoch_budget}
-  用户约束        : {user_constraints 摘要}
+  用户约束        : {user_constraints 摘要 | 无}
+  人工审查模式    : {human_review ? "已启用（每次修改前确认）" : "关闭"}
+  决策解释模式    : {explain_decisions ? "已启用（每次决策前说明依据）" : "关闭"}
   日志注入        : {logging_injected 时显示"已向 {train_script} 注入日志代码" | 否则"项目已有输出文件"}
   基线 metric     : {baseline_metric}（来自首次训练）
 ```
@@ -81,10 +83,49 @@ TARGET_DIR = $ARGUMENTS（若为空则用当前目录）
 读取并执行 `~/.claude/skills/code-tune/modules/03_experiment.md`
 
 若训练失败（Python 报错、SLURM 失败、TIMEOUT 等），执行以下操作：
+
 1. 从 `.autoresearch/baseline/` 恢复所有可修改文件（回滚本次假设）
-2. 将本次实验追加到 `experiment_log.jsonl`，`status: "error"`，`metric_after: null`
-3. **写入 run_log**（`run_logs/{exp_id}.md`）——记录假设、改动、失败原因，此步不可跳过
-4. 输出训练错误信息的最后 20 行
+
+2. 将本次实验追加到 `experiment_log.jsonl`（完整字段，不可省略）：
+   ```json
+   {
+     "exp_id": "{exp_id}",
+     "timestamp": "{ISO 8601}",
+     "hypothesis_summary": "{来自 Module 2 生成的改动一句话描述}",
+     "files_changed": ["{Module 2 应用的文件列表}"],
+     "metric_before": "{manifest.best_metric}",
+     "metric_after": null,
+     "delta": null,
+     "epochs_used": null,
+     "status": "{timeout 或 error}",
+     "curve_diagnosis": "{来自 Module 2 的诊断，若无则填 N/A}",
+     "overfitting": "未知"
+   }
+   ```
+
+3. 将 `manifest.json` 中的 `experiment_count` +1（此步骤通常由 Module 4 完成，error/timeout 时须在此手动执行）
+
+4. **写入 run_log**（`run_logs/{exp_id}.md`），格式如下，此步不可跳过：
+   ```markdown
+   # {exp_id} — {ISO timestamp}
+
+   ## 假设
+   **诊断依据**：{curve_diagnosis}
+   **改动描述**：{一句话}
+   **改动理由**：{2-3 句话}
+
+   ## 改动内容
+   {CURRENT_DIFF 的完整内容}
+
+   ## 训练结果
+   训练失败：{error / timeout}
+   失败信息（最后 20 行）：
+   {错误日志内容}
+
+   ## 决策
+   ✗ 回滚（训练失败，无 metric）
+   ```
+
 5. 若是 TIMEOUT：**直接继续循环**（不等待用户），在下一轮假设中考虑减少 epoch 或换更轻量架构
 6. 若是其他错误（Python 报错等）：停止循环，等待用户处理
 

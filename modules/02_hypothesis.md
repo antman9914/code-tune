@@ -25,7 +25,7 @@ exp_id = "exp_" + str(experiment_count + 1).zfill(3)
 
 ## 2.2 读取训练曲线并诊断
 
-按照 `metric_config.curve.file_pattern` 找到最新一次训练的 per-epoch 曲线文件（CSV），
+按照 `metric_config.curve.file_pattern` 找到最新一次训练的 per-epoch 曲线文件（CSV，**按文件修改时间取最新**），
 读取完整训练曲线（全部 epoch 的 train/val metric，列名由 `train_metric_col` / `val_metric_col` 指定）。
 
 **若无训练记录**（初始化后首次运行 Module 2）：跳过诊断，标注"无历史曲线"。
@@ -105,6 +105,10 @@ exp_id = "exp_" + str(experiment_count + 1).zfill(3)
 ```
 
 ## 2.4 应用假设到项目文件
+
+**human_review 拦截点**：若 `manifest.human_review: true`，在执行本步骤之前，
+SKILL.md Step 1 已展示 2.3 生成的文件改动计划并等待用户确认。
+只有用户确认后才继续执行 2.4；若用户拒绝，返回 2.3 重新生成假设。
 
 **前置步骤：确保项目文件处于 baseline 状态**
 
